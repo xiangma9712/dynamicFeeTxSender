@@ -11,7 +11,7 @@ const url: string = process.env.URL ?? 'http://localhost:8545';
 
     const input = {
         to: '0x432D4dA3fCeCDa336e430b2750d04BB484A5A38f',
-        value: '0.5',
+        value: 0.5 * 10 ** 18,
     }
     
     const rawTransaction = await sender.getSignedTransaction(input);
