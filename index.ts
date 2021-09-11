@@ -11,49 +11,63 @@ type DynamicTxInput = {
     value?: string | number,
     nonce?: number,
     gasLimit?: string,
-    feeCap?: string,
-    tip?: string,
+    maxFeePerGas?: string,
+    maxPriorityFeePerGas?: string,
+}
+
+type ConfigParams = {
+    chain?: chain,
+    defaultPriorityFeePerGas?: string,
+    feeCapRatioToBaseFee?: number,
+    echo?: boolean,
 }
 
 class DynamicSender {
     private client: Web3;
     private privateKey: string;
     private address: string;
-    private chain = 'mainnet';
+    private chain: string;
+    private defaultPriorityFeePerGas: string;
+    private feeCapRatioToBaseFee: number;
+    private echo: boolean;
 
-    constructor(httpProviderUrl: string, privateKey: string, chain?: chain) {
+    constructor(httpProviderUrl: string, privateKey: string, config?: ConfigParams) {
         this.client = new Web3(new Web3.providers.HttpProvider(httpProviderUrl));
         this.privateKey = privateKey;
         this.address = privateKeyToAddress(this.privateKey);
-        if (chain != undefined) {
-            this.chain = chain;
-        }
+        this.chain = config?.chain ?? 'mainnet';
+        this.defaultPriorityFeePerGas = config?.defaultPriorityFeePerGas ?? String(1 * 10 ** 9); //1wei
+        this.feeCapRatioToBaseFee = config?.feeCapRatioToBaseFee ?? 10;
+        this.echo = config?.echo ?? false;
     }
 
     public async getSignedTransaction(input: DynamicTxInput) {
         const nonce = input.nonce ?? await this.client.eth.getTransactionCount(this.address);
-        const feeCap = input.feeCap ?? new BigNumber(await this.client.eth.getGasPrice()).times(2).toFixed();
+        const maxFeePerGas = input.maxFeePerGas ?? new BigNumber(await this.client.eth.getGasPrice()).times(this.feeCapRatioToBaseFee).toFixed();
         const fullInput = {
             to: input.to,
             data: input.data ?? '0x',
             value: Web3.utils.toHex(input.value ?? '0'),
             nonce: Web3.utils.toHex(nonce),
             gasLimit: Web3.utils.toHex(input.gasLimit ?? '21000'),
-            maxFeePerGas: Web3.utils.toHex(feeCap),
-            maxPriorityFeePerGas: Web3.utils.toHex(input.tip ?? '0'),
+            maxFeePerGas: Web3.utils.toHex(maxFeePerGas),
+            maxPriorityFeePerGas: Web3.utils.toHex(input.maxPriorityFeePerGas ?? this.defaultPriorityFeePerGas),
             chainId: Web3.utils.toHex(await this.client.eth.getChainId()),
             accessList: [],
             type: "0x02"
         }
         const common = new Common({ chain: this.chain, hardfork: 'london' });
 
-        const unsignedTx = new ethTx.FeeMarketEIP1559Transaction(fullInput, {common});
+        const unsignedTx = new ethTx.FeeMarketEIP1559Transaction(fullInput, { common });
         const signedTx = unsignedTx.sign(Buffer.from(this.privateKey, 'hex'));
         return '0x' + signedTx.serialize().toString('hex');
     }
 
-    public async sendSignedTransaction (raw: string) {
-        return await this.client.eth.sendSignedTransaction(raw);
+    public async sendSignedTransaction(raw: string) {
+        return await this.client.eth.sendSignedTransaction(raw)
+            .on('transactionHash', (hash) => {
+                this.echo && console.log(hash);
+            });
     }
 }
 
